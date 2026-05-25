@@ -93,6 +93,20 @@ try:
 except ImportError:
     _is_camofox_mode = lambda: False  # noqa: E731
 
+# Patchright anti-detection Chromium browser backend (optional).
+# When PATCHRIGHT_URL is set, all browser operations route through the
+# Patchright REST API (scripts/patchright_server.py).
+# Supports CAPTCHA auto-solving via captcha-solver.
+try:
+    from tools.browser_patchright import is_patchright_mode as _is_patchright_mode
+except ImportError:
+    _is_patchright_mode = lambda: False  # noqa: E731
+
+
+def _is_custom_backend() -> bool:
+    """True when any custom anti-detection backend (Camofox or Patchright) is active."""
+    return _is_camofox_mode() or _is_patchright_mode()
+
 logger = logging.getLogger(__name__)
 
 # Standard PATH entries for environments with minimal PATH (e.g. systemd services).
@@ -596,7 +610,7 @@ def _navigation_session_key(task_id: str, url: str) -> str:
         task_id = "default"
     if _get_cdp_override():
         return task_id
-    if _is_camofox_mode():
+    if _is_custom_backend():
         return task_id
     if _get_cloud_provider() is None:
         return task_id
@@ -1743,9 +1757,13 @@ def browser_navigate(url: str, task_id: Optional[str] = None) -> str:
         })
 
     # Camofox backend — delegate after safety checks pass
-    if _is_camofox_mode():
-        from tools.browser_camofox import camofox_navigate
-        return camofox_navigate(url, task_id)
+    if _is_custom_backend():
+        if _is_camofox_mode():
+            from tools.browser_camofox import camofox_navigate
+            return camofox_navigate(url, task_id)
+        elif _is_patchright_mode():
+            from tools.browser_patchright import patchright_navigate
+            return patchright_navigate(url, task_id)
 
     if auto_local_this_nav:
         logger.info(
@@ -1871,9 +1889,13 @@ def browser_snapshot(
     Returns:
         JSON string with page snapshot
     """
-    if _is_camofox_mode():
-        from tools.browser_camofox import camofox_snapshot
-        return camofox_snapshot(full, task_id, user_task)
+    if _is_custom_backend():
+        if _is_camofox_mode():
+            from tools.browser_camofox import camofox_snapshot
+            return camofox_snapshot(full, task_id, user_task)
+        elif _is_patchright_mode():
+            from tools.browser_patchright import patchright_snapshot
+            return patchright_snapshot(full, task_id, user_task)
 
     effective_task_id = _last_session_key(task_id or "default")
     
@@ -1933,9 +1955,13 @@ def browser_click(ref: str, task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with click result
     """
-    if _is_camofox_mode():
-        from tools.browser_camofox import camofox_click
-        return camofox_click(ref, task_id)
+    if _is_custom_backend():
+        if _is_camofox_mode():
+            from tools.browser_camofox import camofox_click
+            return camofox_click(ref, task_id)
+        elif _is_patchright_mode():
+            from tools.browser_patchright import patchright_click
+            return patchright_click(ref, task_id)
 
     effective_task_id = _last_session_key(task_id or "default")
     
@@ -1969,9 +1995,13 @@ def browser_type(ref: str, text: str, task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with type result
     """
-    if _is_camofox_mode():
-        from tools.browser_camofox import camofox_type
-        return camofox_type(ref, text, task_id)
+    if _is_custom_backend():
+        if _is_camofox_mode():
+            from tools.browser_camofox import camofox_type
+            return camofox_type(ref, text, task_id)
+        elif _is_patchright_mode():
+            from tools.browser_patchright import patchright_type
+            return patchright_type(ref, text, task_id)
 
     effective_task_id = _last_session_key(task_id or "default")
     
@@ -2018,7 +2048,7 @@ def browser_scroll(direction: str, task_id: Optional[str] = None) -> str:
     # ~500px is roughly half a viewport of travel.
     _SCROLL_PIXELS = 500
 
-    if _is_camofox_mode():
+    if _is_custom_backend():
         from tools.browser_camofox import camofox_scroll
         # Camofox REST API doesn't support pixel args; use repeated calls
         _SCROLL_REPEATS = 5
@@ -2052,9 +2082,13 @@ def browser_back(task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with navigation result
     """
-    if _is_camofox_mode():
-        from tools.browser_camofox import camofox_back
-        return camofox_back(task_id)
+    if _is_custom_backend():
+        if _is_camofox_mode():
+            from tools.browser_camofox import camofox_back
+            return camofox_back(task_id)
+        elif _is_patchright_mode():
+            from tools.browser_patchright import patchright_go_back
+            return patchright_go_back(task_id)
 
     effective_task_id = _last_session_key(task_id or "default")
     result = _run_browser_command(effective_task_id, "back", [])
@@ -2083,7 +2117,7 @@ def browser_press(key: str, task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with key press result
     """
-    if _is_camofox_mode():
+    if _is_custom_backend():
         from tools.browser_camofox import camofox_press
         return camofox_press(key, task_id)
 
@@ -2125,7 +2159,7 @@ def browser_console(clear: bool = False, expression: Optional[str] = None, task_
         return _browser_eval(expression, task_id)
 
     # --- Console output mode (original behaviour) ---
-    if _is_camofox_mode():
+    if _is_custom_backend():
         from tools.browser_camofox import camofox_console
         return camofox_console(clear, task_id)
 
@@ -2165,7 +2199,7 @@ def browser_console(clear: bool = False, expression: Optional[str] = None, task_
 
 def _browser_eval(expression: str, task_id: Optional[str] = None) -> str:
     """Evaluate a JavaScript expression in the page context and return the result."""
-    if _is_camofox_mode():
+    if _is_custom_backend():
         return _camofox_eval(expression, task_id)
 
     effective_task_id = _last_session_key(task_id or "default")
@@ -2296,7 +2330,7 @@ def browser_get_images(task_id: Optional[str] = None) -> str:
     Returns:
         JSON string with list of images (src and alt)
     """
-    if _is_camofox_mode():
+    if _is_custom_backend():
         from tools.browser_camofox import camofox_get_images
         return camofox_get_images(task_id)
 
@@ -2364,7 +2398,7 @@ def browser_vision(question: str, annotate: bool = False, task_id: Optional[str]
     Returns:
         JSON string with vision analysis results and screenshot_path
     """
-    if _is_camofox_mode():
+    if _is_custom_backend():
         from tools.browser_camofox import camofox_vision
         return camofox_vision(question, annotate, task_id)
 
@@ -2622,7 +2656,7 @@ def _cleanup_single_browser_session(task_id: str) -> None:
     # Skip full close when managed persistence is enabled — the browser
     # profile (and its session cookies) must survive across agent tasks.
     # The inactivity reaper still frees idle resources.
-    if _is_camofox_mode():
+    if _is_custom_backend():
         try:
             from tools.browser_camofox import camofox_close, camofox_soft_cleanup
             if not camofox_soft_cleanup(task_id):
@@ -2814,7 +2848,7 @@ def check_browser_requirements() -> bool:
         True if all requirements are met, False otherwise
     """
     # Camofox backend — only needs the server URL, no agent-browser CLI
-    if _is_camofox_mode():
+    if _is_custom_backend():
         return True
 
     # The agent-browser CLI is always required
